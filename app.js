@@ -10,6 +10,24 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 app.use(morgan("combined", { stream: logger.stream }));
 
+app.get(
+	"/api/1.6/ocpp/:charger_identity",
+
+	/**
+	 * @param {import('express').Request} req
+	 * @param {import('express').Response} res
+	 */
+	(req, res) => {
+		logger.info({
+			data: {
+				url: req.url,
+				baseUrl: req.baseUrl,
+			},
+		});
+		return res.status(200).json({ message: "Success" });
+	}
+);
+
 app.use("*", (req, res, next) => {
 	logger.error({
 		API_NOT_FOUND: {

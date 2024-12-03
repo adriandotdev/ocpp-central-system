@@ -31,7 +31,7 @@ const options = {
 		filename: `${LOGS_FOLDER_NAME}-%DATE%.log`,
 		dirname: path.join(__dirname, "..", "logs", LOGS_FOLDER_NAME),
 		handleExceptions: true,
-		json: true,
+		json: false,
 		colorize: true,
 		zippedArchive: true,
 		maxSize: "30m",
@@ -42,7 +42,7 @@ const options = {
 		filename: `${LOGS_FOLDER_NAME}-%DATE%.log`,
 		dirname: path.join(__dirname, "..", "logs", LOGS_FOLDER_NAME),
 		handleExceptions: true,
-		json: true,
+		json: false,
 		colorize: true,
 		zippedArchive: true,
 		maxSize: "30m",
@@ -51,7 +51,7 @@ const options = {
 	console: {
 		level: "debug",
 		handleExceptions: true,
-		json: true,
+		json: false,
 		colorize: true,
 	},
 };
