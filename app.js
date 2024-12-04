@@ -10,32 +10,22 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 app.use(morgan("combined", { stream: logger.stream }));
 
-app.get(
-	"/api/1.6/ocpp/:charger_identity",
+let CONNECTED_CHARGERS = [];
+let connectedChargers = new Map();
 
-	/**
-	 * @param {import('express').Request} req
-	 * @param {import('express').Response} res
-	 */
-	(req, res) => {
-		logger.info({
-			data: {
-				url: req.url,
-				baseUrl: req.baseUrl,
-			},
-		});
-		return res.status(200).json({ message: "Success" });
-	}
+require("./controllers/CentralSystemController")(
+	app,
+	CONNECTED_CHARGERS,
+	connectedChargers
 );
+// app.use("*", (req, res, next) => {
+// 	logger.error({
+// 		API_NOT_FOUND: {
+// 			api: req.baseUrl,
+// 			status: 404,
+// 		},
+// 	});
+// 	return res.status(404).json({ status: 404, data: [], message: "Not Found" });
+// });
 
-app.use("*", (req, res, next) => {
-	logger.error({
-		API_NOT_FOUND: {
-			api: req.baseUrl,
-			status: 404,
-		},
-	});
-	return res.status(404).json({ status: 404, data: [], message: "Not Found" });
-});
-
-module.exports = app;
+module.exports = { app, CONNECTED_CHARGERS, connectedChargers };

@@ -1,55 +1,58 @@
-const app = require("./app");
+const { app, CONNECTED_CHARGERS, connectedChargers } = require("./app");
 const WebSocket = require("ws");
 const logger = require("./config/logger");
 
 const PORT = 4500;
 
-// Create an HTTP server
 const server = app.listen(PORT, () => {
 	logger.info(`Server listening on ${PORT}`);
 });
 
-// Attach WebSocket server to the existing HTTP server
 const wss = new WebSocket.Server({
 	server,
 });
 
-let CONNECTED_CHARGERS = [];
-
 wss.on("connection", (ws, req) => {
-	logger.info("New WebSocket connection established!");
-	logger.info(req.url);
-	logger.info({ ...req.headers });
+	logger.info({
+		New_Client_Connected: {
+			identity: req.url.slice(1),
+			headers: {
+				...req.headers,
+			},
+		},
+	});
+
+	const chargerIdentity = req.url.slice(1);
+
+	connectedChargers.set(chargerIdentity, { ws, unique_id: "" });
 
 	ws.on("message", (message) => {
-		logger.info(`Received message: ${message}`);
-
-		const request = Buffer.from(message, "base64").toString("ascii"); // convert data to json or readable text
+		const request = Buffer.from(message, "base64").toString("ascii");
 		const data = JSON.parse(request);
-		//raw_logs.info(data);
-		const unique_id = data[1]; //telto fix-1010 // Unique id that has been receive, will use it again in our response to his current request
-		//let unique_id = data[1]; // Unique id that has been receive, will use it again in our response to his current request
-		const action = data[2]; // OPERATION(BootNotif, Authorize, ...)
-		const payload = data[3]; // payload data
 
-		logger.info({
-			DATA_RECEIVED: {
-				unique_id,
-				action,
-				payload,
-			},
-		});
+		const unique_id = data[1];
+		const action = data[2];
+		const payload = data[3];
 
 		let response = [3, unique_id, {}];
 
+		connectedChargers.set(chargerIdentity, {
+			...connectedChargers.get(chargerIdentity),
+			unique_id: unique_id,
+		});
+
+		logger.info(`Data Received*: ${message}`);
 		if (action === "BootNotification") {
 			logger.info({
-				action: "BootNotification",
-				identity: req.url.slice(1),
-				headers: {
-					...req.headers,
+				DATA_RECEIVED: {
+					action: "BootNotification",
+					identity: req.url.slice(1),
+					headers: {
+						...req.headers,
+					},
+					unique_id,
+					payload,
 				},
-				unique_id,
 			});
 
 			response = [
@@ -65,13 +68,16 @@ wss.on("connection", (ws, req) => {
 			ws.send(JSON.stringify(response));
 		} else if (action === "Heartbeat") {
 			logger.info({
-				action: "Heartbeat",
-				identity: req.url.slice(1),
-				headers: {
-					...req.headers,
+				DATA_RECEIVED: {
+					action: "Heartbeat",
+					identity: req.url.slice(1),
+					headers: {
+						...req.headers,
+					},
+					unique_id,
+					currentTime: new Date().toISOString(),
+					payload,
 				},
-				unique_id,
-				currentTime: new Date().toISOString(),
 			});
 
 			response = [
@@ -87,13 +93,15 @@ wss.on("connection", (ws, req) => {
 			const status = payload.status;
 
 			logger.info({
-				action: "StatusNotification",
-				identity: req.url.slice(1),
-				headers: {
-					...req.headers,
+				DATA_RECEIVED: {
+					action: "StatusNotification",
+					identity: req.url.slice(1),
+					headers: {
+						...req.headers,
+					},
+					unique_id,
+					payload,
 				},
-				unique_id,
-				status,
 			});
 
 			if (status === "Preparing") {
@@ -125,14 +133,15 @@ wss.on("connection", (ws, req) => {
 			let transactionId = payload.transactionId;
 
 			logger.info({
-				action: "MeterValues",
-				identity: req.url.slice(1),
-				headers: {
-					...req.headers,
+				DATA_RECEIVED: {
+					action: "MeterValues",
+					identity: req.url.slice(1),
+					headers: {
+						...req.headers,
+					},
+					unique_id,
+					payload,
 				},
-				unique_id,
-				sampledValue,
-				transactionId,
 			});
 
 			let ampere = sampledValue.value;
@@ -200,6 +209,46 @@ wss.on("connection", (ws, req) => {
 			];
 
 			ws.send(JSON.stringify(response));
+		} else if (action === "ClearCache") {
+			logger.info({
+				DATA_RECEIVED: {
+					action: "ClearCache",
+					identity: req.url.slice(1),
+					headers: {
+						...req.headers,
+					},
+					unique_id,
+					payload,
+				},
+			});
+
+			ws.send(JSON.stringify(response));
+		} else if (action === "Reset") {
+			logger.info({
+				DATA_RECEIVED: {
+					action: "Reset",
+					identity: req.url.slice(1),
+					headers: {
+						...req.headers,
+					},
+					unique_id,
+					payload,
+				},
+			});
+
+			ws.send(JSON.stringify(response));
+		} else if (action === "GetLocalListVersion") {
+			logger.info({
+				DATA_RECEIVED: {
+					action: "GetLocalListVersion",
+					identity: req.url.slice(1),
+					headers: {
+						...req.headers,
+					},
+					unique_id,
+					payload,
+				},
+			});
 		}
 	});
 

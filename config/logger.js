@@ -65,7 +65,7 @@ const logger = createLogger({
 	format: combine(
 		timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
 		splat(),
-		json({ stable: true }),
+		json({ stable: false }),
 		format.colorize({ all: false }),
 		myFormat
 	),
