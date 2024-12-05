@@ -18,14 +18,17 @@ require("./controllers/CentralSystemController")(
 	CONNECTED_CHARGERS,
 	connectedChargers
 );
-// app.use("*", (req, res, next) => {
-// 	logger.error({
-// 		API_NOT_FOUND: {
-// 			api: req.baseUrl,
-// 			status: 404,
-// 		},
-// 	});
-// 	return res.status(404).json({ status: 404, data: [], message: "Not Found" });
-// });
+
+app.use("*", (req, res, next) => {
+	logger.error({
+		API_NOT_FOUND: {
+			api: req.baseUrl,
+			status: 404,
+		},
+	});
+	return res
+		.status(404)
+		.json({ statusCode: 404, data: null, message: "Not Found" });
+});
 
 module.exports = { app, CONNECTED_CHARGERS, connectedChargers };

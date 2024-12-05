@@ -70,7 +70,7 @@ wss.on("connection", (ws, req) => {
 			logger.info({
 				DATA_RECEIVED: {
 					action: "Heartbeat",
-					identity: req.url.slice(1),
+					identity: chargerIdentity,
 					headers: {
 						...req.headers,
 					},
@@ -116,6 +116,8 @@ wss.on("connection", (ws, req) => {
 					},
 				];
 
+				logger.info({ STATUS: "PREPARING" });
+				response = [3, unique_id, {}];
 				ws.send(JSON.stringify(response));
 			} else if (status === "Charging") {
 				logger.info({ unique_id, status });

@@ -1,213 +1,373 @@
 const logger = require("../config/logger");
 
 /**
- *
  * @param {import('express').Request} app
+ * @param {Array} CONNECTED_CHARGERS
+ * @param {Map<String, Object>} connectedChargers
  */
 module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
-	app.post("/api/v1/remote-start", (req, res) => {
-		const { charger_identity, connector_id, id_tag } = req.body;
+	app.post(
+		"/ocpp/1.6/api/v1/remote-start",
 
-		if (!charger_identity || !connector_id || !id_tag) {
-			return res.status(400).json({ message: "Missing required parameters" });
+		/**
+		 * @param {import('express').Request} req
+		 * @param {import('express').Response} res
+		 */
+		(req, res) => {
+			const { charger_identity, connector_id, id_tag } = req.body;
+
+			if (!charger_identity || !connector_id || !id_tag) {
+				return res.status(400).json({
+					statusCode: 400,
+					data: {
+						message:
+							"Request body properties: charger_identity, connector_id, id_tag must be provided",
+					},
+					message: "Bad Request",
+				});
+			}
+
+			const ws = connectedChargers.get(charger_identity)?.ws;
+
+			if (!ws || ws.readyState !== WebSocket.OPEN) {
+				return res.status(404).json({
+					statusCode: 404,
+					data: { message: "Charger not connected or unavailable." },
+					message: "Not Found",
+				});
+			}
+
+			const remoteStartRequest = [
+				2,
+				connectedChargers.get(charger_identity).unique_id, // Unique ID
+				"RemoteStartTransaction", // Action
+				{
+					connectorId: connector_id,
+					idTag: id_tag,
+				},
+			];
+
+			try {
+				logger.info(`API: ${req.url}`);
+				ws.send(JSON.stringify(remoteStartRequest));
+				res.status(200).json({
+					statusCode: 200,
+					data: {
+						charger_identity,
+						action: "RemoteStartTransaction",
+						message: `Success`,
+					},
+					message: `OK`,
+				});
+			} catch (error) {
+				logger.error({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+				res.status(500).json({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+			}
 		}
+	);
 
-		const ws = connectedChargers.get(charger_identity).ws;
+	app.post(
+		"/ocpp/1.6/api/v1/remote-stop",
 
-		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			return res
-				.status(404)
-				.json({ message: "Charger not connected or unavailable" });
+		/**
+		 * @param {import('express').Request} req
+		 * @param {import('express').Response} res
+		 */
+		(req, res) => {
+			const { charger_identity } = req.body;
+
+			if (!charger_identity) {
+				return res.status(400).json({
+					statusCode: 400,
+					data: {
+						message:
+							"Request body properties: charger_identity must be provided.",
+					},
+					message: "Bad Request",
+				});
+			}
+
+			const ws = connectedChargers.get(charger_identity)?.ws;
+
+			if (!ws || ws.readyState !== WebSocket.OPEN) {
+				return res.status(404).json({
+					statusCode: 404,
+					data: { message: "Charger is not connected or unavailable." },
+					message: "Not Found",
+				});
+			}
+
+			const remoteStopRequest = [
+				2,
+				connectedChargers.get(charger_identity).unique_id,
+				"RemoteStopTransaction",
+				{
+					transactionId: 12345,
+				},
+			];
+
+			try {
+				logger.info(`API: ${req.url}`);
+				ws.send(JSON.stringify(remoteStopRequest));
+				res.status(200).json({
+					statusCode: 200,
+					data: {
+						charger_identity,
+						action: "RemoteStopTransaction",
+						message: "Success",
+					},
+					message: `OK`,
+				});
+			} catch (error) {
+				logger.error({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+				res.status(500).json({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+			}
 		}
+	);
 
-		// Create the remote start transaction request
-		const uniqueId = Date.now(); // Example of a unique ID; you can use any unique generator
-		const remoteStartRequest = [
-			2, // Call type
-			connectedChargers.get(charger_identity).unique_id, // Unique ID
-			"RemoteStartTransaction", // Action
-			{
-				connectorId: connector_id,
-				idTag: id_tag,
-			},
-		];
+	app.get(
+		"/ocpp/1.6/api/v1/get-local-list",
 
-		try {
-			logger.info(`API: ${req.url}`);
-			ws.send(JSON.stringify(remoteStartRequest));
-			res.status(200).json({
-				message: `${charger_identity} Remote start command sent successfully`,
-			});
-		} catch (error) {
-			console.error("Error sending remote start command:", error);
-			res.status(500).json({ message: "Failed to send command", error });
+		/**
+		 * @param {import('express').Request} req
+		 * @param {import('express').Response} res
+		 */
+		(req, res) => {
+			const { charger_identity } = req.body;
+
+			if (!charger_identity) {
+				return res.status(400).json({
+					statusCode: 400,
+					data: {
+						message:
+							"Request body properties: charger_identity must be provided",
+					},
+					message: "Bad Request",
+				});
+			}
+
+			const ws = connectedChargers.get(charger_identity)?.ws;
+
+			if (!ws || ws.readyState !== WebSocket.OPEN) {
+				return res.status(404).json({
+					statusCode: 404,
+					data: { message: "Charger is not connected or unavailable" },
+					message: "Not Found",
+				});
+			}
+
+			const localListRequest = [
+				2,
+				connectedChargers.get(charger_identity).unique_id,
+				"GetLocalListVersion",
+				{},
+			];
+
+			try {
+				logger.info(`API: ${req.url}`);
+				ws.send(JSON.stringify(localListRequest));
+				res.status(200).json({
+					statusCode: 200,
+					data: {
+						charger_identity,
+						action: "GetLocalListVersion",
+						message: "Success",
+					},
+					message: "OK",
+				});
+			} catch (error) {
+				logger.error({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+				res.status(500).json({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+			}
 		}
-	});
+	);
 
-	app.post("/api/v1/remote-stop", (req, res) => {
-		const { charger_identity } = req.body;
+	app.post(
+		"/ocpp/1.6/api/v1/trigger-message",
 
-		if (!charger_identity) {
-			return res.status(400).json({ message: "Missing required parameters" });
+		/**
+		 * @param {import('express').Request} req
+		 * @param {import('express').Response} res
+		 */
+		(req, res) => {
+			const { charger_identity, requested_message, connector_id } = req.body;
+
+			if (!requested_message || !charger_identity || !connector_id)
+				return res.status(400).json({
+					statusCode: 400,
+					data: {
+						message:
+							"Request body properties: charger_identity, requested_message, connector_id must be provided",
+					},
+					message: "Bad Request",
+				});
+
+			const ws = connectedChargers.get(charger_identity)?.ws;
+
+			if (!ws || ws.readyState !== WebSocket.OPEN) {
+				return res.status(404).json({
+					statusCode: 404,
+					data: { message: "Charger is not connected or unavailable" },
+					message: "Not Found",
+				});
+			}
+
+			const triggerMessageRequest = [
+				2,
+				connectedChargers.get(charger_identity).unique_id,
+				"TriggerMessage",
+				{
+					requestedMessage: requested_message,
+					connectorId: connector_id ? 0 : 1,
+				},
+			];
+
+			try {
+				logger.info(`API: ${req.url}`);
+				ws.send(JSON.stringify(triggerMessageRequest));
+				res.status(200).json({
+					statusCode: 200,
+					data: {
+						charger_identity,
+						action: "TriggerMessage",
+						requested_message,
+						connector_id,
+						message: "Success",
+					},
+					message: "OK",
+				});
+			} catch (error) {
+				logger.error({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+				res.status(500).json({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+			}
 		}
+	);
 
-		const ws = connectedChargers.get(charger_identity).ws;
+	app.post(
+		"/ocpp/1.6/api/v1/clear-cache",
 
-		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			return res
-				.status(404)
-				.json({ message: "Charger not connected or unavailable" });
+		/**
+		 * @param {import('express').Request} req
+		 * @param {import('express').Response} res
+		 */
+		(req, res) => {
+			const { charger_identity } = req.body;
+
+			if (!charger_identity) {
+				return res.status(400).json({
+					statusCode: 400,
+					data: {
+						message:
+							"Request body properties: charger_identity must be provided",
+					},
+					message: "Bad Request",
+				});
+			}
+
+			const ws = connectedChargers.get(charger_identity)?.ws;
+
+			if (!ws || ws.readyState !== WebSocket.OPEN) {
+				return res.status(404).json({
+					statusCode: 404,
+					data: { message: "Charger is not connected or unavailable." },
+					message: "Not Found",
+				});
+			}
+
+			const clearCacheRequest = [
+				2,
+				connectedChargers.get(charger_identity).unique_id,
+				"ClearCache",
+				{},
+			];
+
+			try {
+				logger.info(`API: ${req.url}`);
+				ws.send(JSON.stringify(clearCacheRequest));
+				res.status(200).json({
+					statusCode: 200,
+					data: {
+						charger_identity,
+						action: "ClearCache",
+						message: "Success",
+					},
+					message: "OK",
+				});
+			} catch (error) {
+				logger.error({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+				res.status(500).json({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+			}
 		}
+	);
 
-		// Create the remote start transaction request
-		const uniqueId = Date.now(); // Example of a unique ID; you can use any unique generator
-		const remoteStopRequest = [
-			2, // Call type
-			connectedChargers.get(charger_identity).unique_id, // Unique ID
-			"RemoteStopTransaction", // Action
-			{
-				transactionId: 12345,
-			},
-		];
-
-		try {
-			logger.info(`API: ${req.url}`);
-			ws.send(JSON.stringify(remoteStopRequest));
-			res.status(200).json({
-				message: `${charger_identity} Remote stop command sent successfully`,
-			});
-		} catch (error) {
-			console.error("Error sending remote stop command:", error);
-			res.status(500).json({ message: "Failed to send command", error });
-		}
-	});
-
-	app.get("/api/v1/get-local-list", (req, res) => {
-		const { charger_id } = req.body;
-
-		if (!charger_id) {
-			return res.status(400).json({ message: "Missing required parameters" });
-		}
-
-		const ws = connectedChargers.get(charger_id).ws;
-
-		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			return res
-				.status(404)
-				.json({ message: "Charger not connected or unavailable" });
-		}
-
-		// Create the local list request
-		const uniqueId = Date.now(); // Example of a unique ID; you can use any unique generator
-		const localListRequest = [
-			2, // Call type
-			connectedChargers.get(charger_id).unique_id, // Unique ID
-			"GetLocalListVersion", // Action
-			{},
-		];
-
-		try {
-			logger.info(`API: ${req.url}`);
-			ws.send(JSON.stringify(localListRequest));
-			res.status(200).json({ message: "Local list command sent successfully" });
-		} catch (error) {
-			console.error("Error sending local list command:", error);
-			res.status(500).json({ message: "Failed to send command", error });
-		}
-	});
-
-	app.post("/api/v1/trigger-message", (req, res) => {
-		const { charger_identity, requested_message, connector_id } = req.body;
-
-		if (!requested_message)
-			return res.status(400).json({ message: "Invalid trigger message" });
-
-		const ws = connectedChargers.get(charger_identity).ws;
-
-		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			return res
-				.status(404)
-				.json({ message: "Charger not connected or unavailable" });
-		}
-
-		const uniqueId = Date.now();
-		const triggerMessageRequest = [
-			2, // Call type
-			connectedChargers.get(charger_identity).unique_id, // Unique ID
-			"TriggerMessage", // Action
-			{
-				requestedMessage: requested_message,
-				connectorId: connector_id ? 0 : 1,
-			},
-		];
-
-		try {
-			logger.info(`API: ${req.url}`);
-			ws.send(JSON.stringify(triggerMessageRequest));
-			res
-				.status(200)
-				.json({ message: `${charger_identity} Trigger Message Success` });
-		} catch (error) {
-			console.error("Error sending trigger message command:", error);
-			res.status(500).json({ message: "Failed to send command", error });
-		}
-	});
-
-	app.post("/api/v1/clear-cache", (req, res) => {
-		const { charger_identity } = req.body;
-
-		if (!charger_identity) {
-			return res.status(400).json({ message: "Missing required request body" });
-		}
-
-		const ws = connectedChargers.get(charger_identity).ws;
-
-		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			return res
-				.status(404)
-				.json({ message: "Charger not connected or unavailable" });
-		}
-
-		const uniqueId = Date.now();
-		const clearCacheRequest = [
-			2, // Call type
-			connectedChargers.get(charger_identity).unique_id, // Unique ID
-			"ClearCache", // Action
-			{},
-		];
-
-		try {
-			logger.info(`API: ${req.url}`);
-			ws.send(JSON.stringify(clearCacheRequest));
-			res
-				.status(200)
-				.json({ message: `${charger_identity} Clear Cache Success` });
-		} catch (error) {
-			console.error("Error sending clear cache command:", error);
-			res.status(500).json({ message: "Failed to send command", error });
-		}
-	});
-
-	app.post("/api/v1/reset", (req, res) => {
+	app.post("/ocpp/1.6/api/v1/reset", (req, res) => {
 		const { charger_identity, reset_type } = req.body;
 
-		if (!charger_identity) {
-			return res.status(400).json({ message: "Missing required request body" });
+		if (!charger_identity || !reset_type) {
+			return res.status(400).json({
+				statusCode: 400,
+				data: {
+					message:
+						"Request body properties: charger_identity, reset_type must be provided",
+				},
+				message: "Bad Request",
+			});
 		}
 
-		const ws = connectedChargers.get(charger_identity).ws;
+		const ws = connectedChargers.get(charger_identity)?.ws;
 
 		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			return res
-				.status(404)
-				.json({ message: "Charger not connected or unavailable" });
+			return res.status(404).json({
+				statusCode: 404,
+				data: { message: "Charger is not connected or unavailable." },
+				message: "Not Found",
+			});
 		}
 
-		const uniqueId = Date.now();
 		const resetRequest = [
-			2, // Call type
-			connectedChargers.get(charger_identity).unique_id, // Unique ID
-			"Reset", // Action
+			2,
+			connectedChargers.get(charger_identity).unique_id,
+			"Reset",
 			{
 				type: reset_type,
 			},
@@ -216,10 +376,27 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 		try {
 			logger.info(`API: ${req.url}`);
 			ws.send(JSON.stringify(resetRequest));
-			res.status(200).json({ message: `${charger_identity} Reset Success` });
+			res.status(200).json({
+				statusCode: 200,
+				data: {
+					charger_identity,
+					action: "Reset",
+					reset_type,
+					message: "Success",
+				},
+				message: "OK",
+			});
 		} catch (error) {
-			console.error("Error sending reset command:", error);
-			res.status(500).json({ message: "Failed to send command", error });
+			logger.error({
+				statusCode: 500,
+				data: { error },
+				message: "Internal Server Error",
+			});
+			res.status(500).json({
+				statusCode: 500,
+				data: { error },
+				message: "Internal Server Error",
+			});
 		}
 	});
 };
