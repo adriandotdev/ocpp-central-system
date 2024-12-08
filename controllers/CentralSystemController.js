@@ -2,7 +2,7 @@ const WebSocket = require("ws");
 const logger = require("../config/logger");
 
 /**
- * @param {import('express').Request} app
+ * @param {import('express').Express} app
  * @param {Array} CONNECTED_CHARGERS
  * @param {Map<String, Object>} connectedChargers
  */
@@ -594,6 +594,8 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 		const expiryDate = new Date(offsetDate.getTime() + 1 * 60 * 1000); // Add 1 minute for expiry date
 		const isoStringWithOffset = expiryDate.toISOString();
 
+		let reservationId = Math.floor(Date.now() / 1000);
+
 		let sendReservation = [
 			2,
 			connectedChargers.get(charger_identity).unique_id,
@@ -602,7 +604,7 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 				connectorId: connector_id,
 				expiryDate: isoStringWithOffset,
 				idTag: id_tag,
-				reservationId: Math.floor(Date.now() / 1000),
+				reservationId,
 			},
 		];
 
@@ -616,6 +618,55 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 					action: "ReserveNow",
 					connector_id,
 					id_tag,
+					reservation_id: reservationId,
+				},
+				message: "OK",
+			});
+		} catch (error) {
+			logger.error({
+				statusCode: 500,
+				data: { error },
+				message: "Internal Server Error",
+			});
+			res.status(500).json({
+				statusCode: 500,
+				data: { error },
+				message: "Internal Server Error",
+			});
+		}
+	});
+
+	app.post("/ocpp/1.6/api/v1/cancel-reservation", [], (req, res) => {
+		const { charger_identity, reservation_id } = req.body;
+
+		const ws = connectedChargers.get(charger_identity)?.ws;
+
+		if (!ws || ws.readyState !== WebSocket.OPEN) {
+			return res.status(404).json({
+				statusCode: 404,
+				data: { message: "Charger is not connected or unavailable." },
+				message: "Not Found",
+			});
+		}
+
+		let cancelReservation = [
+			2,
+			connectedChargers.get(charger_identity).unique_id,
+			"CancelReservation",
+			{
+				reservationId: reservation_id,
+			},
+		];
+
+		try {
+			logger.info(`API: ${req.url}`);
+			ws.send(JSON.stringify(cancelReservation));
+			res.status(200).json({
+				statusCode: 200,
+				data: {
+					charger_identity,
+					action: "CancelReservation",
+					reservation_id,
 				},
 				message: "OK",
 			});
