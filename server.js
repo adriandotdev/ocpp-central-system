@@ -179,7 +179,6 @@ wss.on("connection", (ws, req) => {
 						...req.headers,
 					},
 					unique_id,
-					currentTime: new Date().toISOString(),
 					payload,
 				},
 			});

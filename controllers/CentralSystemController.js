@@ -63,21 +63,21 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 				{
 					connectorId: connector_id,
 					idTag: id_tag, // Valid and authorized ID tag
-					chargingProfile: {
-						chargingProfileId: Date.now(), // Unique profile ID
-						stackLevel: 0,
-						chargingProfilePurpose: "TxProfile", // Transaction-specific profile
-						chargingProfileKind: "Relative", // Profile type
-						chargingSchedule: {
-							chargingRateUnit: "W", // Watts
-							chargingSchedulePeriod: [
-								{
-									startPeriod: 0, // Start immediately
-									limit: 10.0, // Limit charging power
-								},
-							],
-						},
-					},
+					// chargingProfile: {
+					// 	chargingProfileId: Date.now(), // Unique profile ID
+					// 	stackLevel: 0,
+					// 	chargingProfilePurpose: "TxProfile", // Transaction-specific profile
+					// 	chargingProfileKind: "Relative", // Profile type
+					// 	chargingSchedule: {
+					// 		chargingRateUnit: "W", // Watts
+					// 		chargingSchedulePeriod: [
+					// 			{
+					// 				startPeriod: 0, // Start immediately
+					// 				limit: 10.0, // Limit charging power
+					// 			},
+					// 		],
+					// 	},
+					// },
 				},
 			];
 
@@ -575,4 +575,61 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 			}
 		}
 	);
+
+	app.post("/ocpp/1.6/api/v1/reserve-now", [], (req, res) => {
+		const { charger_identity, connector_id, id_tag } = req.body;
+
+		const ws = connectedChargers.get(charger_identity)?.ws;
+
+		if (!ws || ws.readyState !== WebSocket.OPEN) {
+			return res.status(404).json({
+				statusCode: 404,
+				data: { message: "Charger is not connected or unavailable." },
+				message: "Not Found",
+			});
+		}
+
+		const date = new Date();
+		const offsetDate = new Date(date.getTime() + 8 * 60 * 60 * 1000); // Add 8 hours (UTC+8)
+		const expiryDate = new Date(offsetDate.getTime() + 1 * 60 * 1000); // Add 1 minute for expiry date
+		const isoStringWithOffset = expiryDate.toISOString();
+
+		let sendReservation = [
+			2,
+			connectedChargers.get(charger_identity).unique_id,
+			"ReserveNow",
+			{
+				connectorId: connector_id,
+				expiryDate: isoStringWithOffset,
+				idTag: id_tag,
+				reservationId: Math.floor(Date.now() / 1000),
+			},
+		];
+
+		try {
+			logger.info(`API: ${req.url}`);
+			ws.send(JSON.stringify(sendReservation));
+			res.status(200).json({
+				statusCode: 200,
+				data: {
+					charger_identity,
+					action: "ReserveNow",
+					connector_id,
+					id_tag,
+				},
+				message: "OK",
+			});
+		} catch (error) {
+			logger.error({
+				statusCode: 500,
+				data: { error },
+				message: "Internal Server Error",
+			});
+			res.status(500).json({
+				statusCode: 500,
+				data: { error },
+				message: "Internal Server Error",
+			});
+		}
+	});
 };
