@@ -1,3 +1,4 @@
+const WebSocket = require("ws");
 const logger = require("../config/logger");
 
 /**
@@ -48,7 +49,7 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 					message: "Bad Request - 2",
 				});
 
-			const transactionID = Date.now();
+			const transactionID = Math.floor(Date.now() / 1000);
 
 			connectedChargers.set(charger_identity, {
 				...connectedChargers.get(charger_identity),
@@ -61,7 +62,22 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 				"RemoteStartTransaction", // Action
 				{
 					connectorId: connector_id,
-					idTag: id_tag,
+					idTag: id_tag, // Valid and authorized ID tag
+					chargingProfile: {
+						chargingProfileId: Date.now(), // Unique profile ID
+						stackLevel: 0,
+						chargingProfilePurpose: "TxProfile", // Transaction-specific profile
+						chargingProfileKind: "Relative", // Profile type
+						chargingSchedule: {
+							chargingRateUnit: "W", // Watts
+							chargingSchedulePeriod: [
+								{
+									startPeriod: 0, // Start immediately
+									limit: 10.0, // Limit charging power
+								},
+							],
+						},
+					},
 				},
 			];
 
@@ -484,6 +500,64 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 						local_authorization_list,
 						update_type,
 						message: "Success",
+					},
+					message: "OK",
+				});
+			} catch (error) {
+				logger.error({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+				res.status(500).json({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+			}
+		}
+	);
+
+	app.post(
+		"/ocpp/1.6/api/v1/change-configuration",
+		[],
+		/**
+		 * @param {import('express').Request} req
+		 * @param {import('express').Response} res
+		 */
+		(req, res) => {
+			const { charger_identity, key, value } = req.body;
+
+			const ws = connectedChargers.get(charger_identity)?.ws;
+
+			if (!ws || ws.readyState !== WebSocket.OPEN) {
+				return res.status(404).json({
+					statusCode: 404,
+					data: { message: "Charger is not connected or unavailable." },
+					message: "Not Found",
+				});
+			}
+
+			let sendChangeConfiguration = [
+				2,
+				connectedChargers.get(charger_identity).unique_id,
+				"ChangeConfiguration",
+				{
+					key,
+					value,
+				},
+			];
+
+			try {
+				logger.info(`API: ${req.url}`);
+				ws.send(JSON.stringify(sendChangeConfiguration));
+				res.status(200).json({
+					statusCode: 200,
+					data: {
+						charger_identity,
+						action: "ChangeConfiguration",
+						key,
+						value,
 					},
 					message: "OK",
 				});

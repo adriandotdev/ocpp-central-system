@@ -110,17 +110,66 @@ wss.on("connection", (ws, req) => {
 				},
 			});
 
+			const date = new Date();
+			const offsetDate = new Date(date.getTime() + 8 * 60 * 60 * 1000); // Add 8 hours
+			const isoStringWithOffset = offsetDate.toISOString();
+
 			response = [
 				3,
 				unique_id,
 				{
-					currentTime: new Date().toISOString(), // ISO 8601 date format
+					currentTime: isoStringWithOffset, // ISO 8601 date format
 					interval: 60, // Example interval in seconds
 					status: "Accepted", // RegistrationStatus value
 				},
 			];
 
 			ws.send(JSON.stringify(response));
+
+			(async () => {
+				try {
+					const response = await fetch(
+						"http://localhost:4500/ocpp/1.6/api/v1/change-configuration",
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json", // Inform the server you're sending JSON
+							},
+							body: JSON.stringify({
+								charger_identity: req.url.slice(1),
+								key: "MeterValueSampleInterval",
+								value: "5",
+							}),
+						}
+					);
+
+					// Check for HTTP errors
+					if (!response.ok) {
+						const errorText = await response.text();
+						throw new Error(`HTTP ${response.status}: ${errorText}`);
+					}
+
+					// Check if the response is JSON
+					const contentType = response.headers.get("Content-Type");
+					if (contentType && contentType.includes("application/json")) {
+						const data = await response.json();
+						logger.info({
+							charger_identity: req.url.slice(1),
+							connector_id: 1,
+							id_tag: payload.idTag,
+						});
+						logger.info(`Data Received: ${JSON.stringify(data)}`);
+						logger.info(data);
+					} else {
+						const errorText = await response.text();
+						throw new Error(
+							`Unexpected content type: ${contentType}. Body: ${errorText}`
+						);
+					}
+				} catch (error) {
+					logger.error(`Error occurred: ${error.message}`);
+				}
+			})();
 		} else if (action === "Heartbeat") {
 			logger.info({
 				DATA_RECEIVED: {
@@ -135,11 +184,15 @@ wss.on("connection", (ws, req) => {
 				},
 			});
 
+			const date = new Date();
+			const offsetDate = new Date(date.getTime() + 8 * 60 * 60 * 1000); // Add 8 hours
+			const isoStringWithOffset = offsetDate.toISOString();
+
 			response = [
 				3,
 				unique_id,
 				{
-					currentTime: new Date().toISOString(),
+					currentTime: isoStringWithOffset,
 				},
 			];
 
@@ -198,6 +251,7 @@ wss.on("connection", (ws, req) => {
 					},
 					unique_id,
 					payload,
+					transactionId,
 				},
 			});
 
