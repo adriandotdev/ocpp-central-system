@@ -17,6 +17,9 @@ This project includes core commands for OCPP communication but not limited to:
 - StopTransaction
 - TriggerMessage
 - Reset
+- ReserveNow
+- CancelReservation
+- ChangeConfiguration
 
 ## Technologies
 
