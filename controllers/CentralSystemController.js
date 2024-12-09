@@ -288,7 +288,7 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 				"TriggerMessage",
 				{
 					requestedMessage: requested_message,
-					connectorId: connector_id ? 0 : 1,
+					connectorId: !connector_id ? 0 : connector_id,
 				},
 			];
 
