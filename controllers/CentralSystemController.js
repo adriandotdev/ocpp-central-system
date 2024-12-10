@@ -142,15 +142,67 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 			try {
 				logger.info(`API: ${req.url}`);
 				ws.send(JSON.stringify(remoteStopRequest));
-				res.status(200).json({
-					statusCode: 200,
-					data: {
-						charger_identity,
-						action: "RemoteStopTransaction",
-						message: "Success",
-					},
-					message: `OK`,
-				});
+
+				// Listen for WebSocket messages
+				const messageListener = (message) => {
+					try {
+						const parsedMessage = JSON.parse(message);
+
+						// Check if the response corresponds to this request
+						if (
+							parsedMessage[1] ===
+							connectedChargers.get(charger_identity).unique_id
+						) {
+							// Cleanup the listener after processing
+							ws.off("message", messageListener);
+
+							// Handle the response
+							if (parsedMessage[0] === 3) {
+								let message = undefined;
+
+								message = parsedMessage[2]?.status;
+
+								if (message !== "Accepted")
+									return res.status(400).json({
+										statusCode: 400,
+										data: {
+											charger_identity,
+											action: "RemoteStopTransaction",
+											transaction_id,
+											message: "Transaction ID is not found",
+										},
+										message,
+									});
+
+								return res.status(200).json({
+									statusCode: 200,
+									data: {
+										charger_identity,
+										action: "RemoteStopTransaction",
+										transaction_id,
+										message: "Successfully stopped transaction",
+									},
+									message,
+								});
+							} else if (parsedMessage[0] === 4) {
+								// Error response
+								logger.error(
+									`Reservation failed: ${JSON.stringify(parsedMessage)}`
+								);
+								res.status(400).json({
+									statusCode: 400,
+									data: { error: parsedMessage[2] },
+									message: "Reservation failed.",
+								});
+							}
+						}
+					} catch (error) {
+						logger.error("Error parsing WebSocket message:", error);
+					}
+				};
+
+				// Attach the listener
+				ws.on("message", messageListener);
 			} catch (error) {
 				logger.error({
 					statusCode: 500,
