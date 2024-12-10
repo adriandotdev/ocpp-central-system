@@ -39,16 +39,6 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 				});
 			}
 
-			const hasCurrentTransaction =
-				connectedChargers.get(charger_identity).transactionId !== null;
-
-			if (hasCurrentTransaction)
-				return res.status(400).json({
-					statusCode: 400,
-					data: { message: "Charger is charging" },
-					message: "Bad Request - 2",
-				});
-
 			const transactionID = Math.floor(Date.now() / 1000);
 
 			connectedChargers.set(charger_identity, {
@@ -139,17 +129,6 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 					message: "Not Found",
 				});
 			}
-
-			const isTransactionIdValid =
-				connectedChargers.get(charger_identity).transactionId ===
-				transaction_id;
-
-			if (!isTransactionIdValid)
-				return res.status(400).json({
-					statusCode: 400,
-					data: { message: "Transaction ID is invalid or not existing" },
-					message: "Bad Request",
-				});
 
 			const remoteStopRequest = [
 				2,
@@ -551,16 +530,95 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 			try {
 				logger.info(`API: ${req.url}`);
 				ws.send(JSON.stringify(sendChangeConfiguration));
-				res.status(200).json({
-					statusCode: 200,
-					data: {
-						charger_identity,
-						action: "ChangeConfiguration",
-						key,
-						value,
-					},
-					message: "OK",
-				});
+
+				const messageListener = (message) => {
+					try {
+						const parsedMessage = JSON.parse(message);
+
+						// Check if the response corresponds to this request
+						if (
+							parsedMessage[1] ===
+							connectedChargers.get(charger_identity).unique_id
+						) {
+							// Cleanup the listener after processing
+							ws.off("message", messageListener);
+
+							// Handle the response
+							if (parsedMessage[0] === 3) {
+								let message = undefined;
+
+								message = parsedMessage[2]?.status;
+
+								if (message === "Rejected")
+									return res.status(400).json({
+										statusCode: 400,
+										data: {
+											charger_identity,
+											action: "ChangeConfiguration",
+											key,
+											value,
+											message:
+												"Configuration key is supported, but setting could not be changed.",
+										},
+										message,
+									});
+
+								if (message === "NotSupported")
+									return res.status(400).json({
+										statusCode: 400,
+										data: {
+											charger_identity,
+											action: "ChangeConfiguration",
+											key,
+											value,
+											message: "Configuration key is not supported.",
+										},
+										message,
+									});
+
+								if (message === "RebootRequired")
+									return res.status(200).json({
+										statusCode: 200,
+										data: {
+											charger_identity,
+											action: "ChangeConfiguration",
+											key,
+											value,
+											message:
+												"Configuration key is supported and setting has been changed, but change will be available after reboot (Charge Point will not reboot itself)",
+										},
+										message,
+									});
+
+								return res.status(200).json({
+									statusCode: 200,
+									data: {
+										charger_identity,
+										action: "ChangeConfiguration",
+										key,
+										value,
+									},
+									message: "Change configuration successful.",
+								});
+							} else if (parsedMessage[0] === 4) {
+								// Error response
+								logger.error(
+									`Reservation failed: ${JSON.stringify(parsedMessage)}`
+								);
+								res.status(400).json({
+									statusCode: 400,
+									data: { error: parsedMessage[2] },
+									message: "Reservation failed.",
+								});
+							}
+						}
+					} catch (error) {
+						logger.error("Error parsing WebSocket message:", error);
+					}
+				};
+
+				// Attach the listener
+				ws.on("message", messageListener);
 			} catch (error) {
 				logger.error({
 					statusCode: 500,
@@ -576,65 +634,119 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 		}
 	);
 
-	app.post("/ocpp/1.6/api/v1/reserve-now", [], (req, res) => {
-		const { charger_identity, connector_id, id_tag } = req.body;
+	app.post(
+		"/ocpp/1.6/api/v1/reserve-now",
+		[],
 
-		const ws = connectedChargers.get(charger_identity)?.ws;
+		/**
+		 * @param {import('express').Request} req
+		 * @param {import('express').Response} res
+		 * @returns
+		 */
+		(req, res) => {
+			const { charger_identity, connector_id, id_tag } = req.body;
 
-		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			return res.status(404).json({
-				statusCode: 404,
-				data: { message: "Charger is not connected or unavailable." },
-				message: "Not Found",
-			});
-		}
+			const ws = connectedChargers.get(charger_identity)?.ws;
 
-		const date = new Date();
-		const offsetDate = new Date(date.getTime() + 8 * 60 * 60 * 1000); // Add 8 hours (UTC+8)
-		const expiryDate = new Date(offsetDate.getTime() + 1 * 60 * 1000); // Add 1 minute for expiry date
-		const isoStringWithOffset = expiryDate.toISOString();
+			if (!ws || ws.readyState !== WebSocket.OPEN) {
+				return res.status(404).json({
+					statusCode: 404,
+					data: { message: "Charger is not connected or unavailable." },
+					message: "Not Found",
+				});
+			}
 
-		let reservationId = Math.floor(Date.now() / 1000);
+			const date = new Date();
+			const offsetDate = new Date(date.getTime() + 8 * 60 * 60 * 1000); // Add 8 hours (UTC+8)
+			const expiryDate = new Date(offsetDate.getTime() + 2 * 60 * 1000); // Add 1 minute for expiry date
+			const isoStringWithOffset = expiryDate.toISOString();
 
-		let sendReservation = [
-			2,
-			connectedChargers.get(charger_identity).unique_id,
-			"ReserveNow",
-			{
-				connectorId: connector_id,
-				expiryDate: isoStringWithOffset,
-				idTag: id_tag,
-				reservationId,
-			},
-		];
+			let reservationId = Math.floor(Date.now() / 1000);
 
-		try {
-			logger.info(`API: ${req.url}`);
-			ws.send(JSON.stringify(sendReservation));
-			res.status(200).json({
-				statusCode: 200,
-				data: {
-					charger_identity,
-					action: "ReserveNow",
-					connector_id,
-					id_tag,
-					reservation_id: reservationId,
+			let sendReservation = [
+				2,
+				connectedChargers.get(charger_identity).unique_id,
+				"ReserveNow",
+				{
+					connectorId: connector_id,
+					expiryDate: isoStringWithOffset,
+					idTag: id_tag,
+					reservationId,
 				},
-				message: "OK",
-			});
-		} catch (error) {
-			logger.error({
-				statusCode: 500,
-				data: { error },
-				message: "Internal Server Error",
-			});
-			res.status(500).json({
-				statusCode: 500,
-				data: { error },
-				message: "Internal Server Error",
-			});
+			];
+
+			try {
+				logger.info(`API: ${req.url}`);
+				ws.send(JSON.stringify(sendReservation));
+
+				// Listen for WebSocket messages
+				const messageListener = (message) => {
+					try {
+						const parsedMessage = JSON.parse(message);
+
+						// Check if the response corresponds to this request
+						if (
+							parsedMessage[1] ===
+							connectedChargers.get(charger_identity).unique_id
+						) {
+							// Cleanup the listener after processing
+							ws.off("message", messageListener);
+
+							// Handle the response
+							if (parsedMessage[0] === 3) {
+								let message = undefined;
+
+								message = parsedMessage[2]?.status;
+
+								if (message !== "Accepted")
+									return res
+										.status(400)
+										.json({ statusCode: 400, data: null, message });
+
+								return res.status(200).json({
+									statusCode: 200,
+									data: {
+										charger_identity,
+										action: "ReserveNow",
+										connector_id,
+										id_tag,
+										reservation_id: reservationId,
+									},
+									message: "Reservation successful.",
+								});
+							} else if (parsedMessage[0] === 4) {
+								// Error response
+								logger.error(
+									`Reservation failed: ${JSON.stringify(parsedMessage)}`
+								);
+								res.status(400).json({
+									statusCode: 400,
+									data: { error: parsedMessage[2] },
+									message: "Reservation failed.",
+								});
+							}
+						}
+					} catch (error) {
+						logger.error("Error parsing WebSocket message:", error);
+					}
+				};
+
+				// Attach the listener
+				ws.on("message", messageListener);
+			} catch (error) {
+				logger.error({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+				res.status(500).json({
+					statusCode: 500,
+					data: { error },
+					message: "Internal Server Error",
+				});
+			}
 		}
-	});
+	);
 
 	app.post("/ocpp/1.6/api/v1/cancel-reservation", [], (req, res) => {
 		const { charger_identity, reservation_id } = req.body;
@@ -661,15 +773,62 @@ module.exports = (app, CONNECTED_CHARGERS, connectedChargers) => {
 		try {
 			logger.info(`API: ${req.url}`);
 			ws.send(JSON.stringify(cancelReservation));
-			res.status(200).json({
-				statusCode: 200,
-				data: {
-					charger_identity,
-					action: "CancelReservation",
-					reservation_id,
-				},
-				message: "OK",
-			});
+
+			const messageListener = (message) => {
+				try {
+					const parsedMessage = JSON.parse(message);
+
+					// Check if the response corresponds to this request
+					if (
+						parsedMessage[1] ===
+						connectedChargers.get(charger_identity).unique_id
+					) {
+						// Cleanup the listener after processing
+						ws.off("message", messageListener);
+
+						logger.info(`API: ${parsedMessage}`);
+						// Handle the response
+						if (parsedMessage[0] === 3) {
+							let message = undefined;
+
+							message = parsedMessage[2]?.status;
+
+							if (message !== "Accepted")
+								return res.status(400).json({
+									statusCode: 400,
+									data: {
+										message: "Reservation ID is not found",
+									},
+									message,
+								});
+
+							return res.status(200).json({
+								statusCode: 200,
+								data: {
+									charger_identity,
+									action: "CancelReservation",
+									reservation_id,
+								},
+								message: "Reservation cancellation successful.",
+							});
+						} else if (parsedMessage[0] === 4) {
+							logger.error(
+								`Cancellation error: ${JSON.stringify(parsedMessage)}`
+							);
+							res.status(400).json({
+								statusCode: 400,
+								data: { error: parsedMessage[2] },
+								message: "Reservation cancellation failed.",
+							});
+						}
+					}
+				} catch (error) {
+					logger.error("Error parsing WebSocket message:", error);
+				}
+			};
+
+			// Attach the listener
+			ws.on("message", messageListener);
 		} catch (error) {
 			logger.error({
 				statusCode: 500,

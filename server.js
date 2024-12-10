@@ -13,14 +13,7 @@ const wss = new WebSocket.Server({
 });
 
 wss.on("connection", (ws, req) => {
-	logger.info({
-		New_Client_Connected: {
-			identity: req.url.slice(1),
-			headers: {
-				...req.headers,
-			},
-		},
-	});
+	logger.info(`New charger connected: ${req.url.slice(1)}`);
 
 	/**
 	 * Extract the charger identity from the URL. This is the unique identifier for the charger.
@@ -40,6 +33,7 @@ wss.on("connection", (ws, req) => {
 	ws.on("message", (message) => {
 		const request = Buffer.from(message, "base64").toString("ascii");
 		const data = JSON.parse(request);
+		const messageTypeID = data[0];
 		const unique_id = data[1];
 		const action = data[2];
 		const payload = data[3];
@@ -62,20 +56,18 @@ wss.on("connection", (ws, req) => {
 				}),
 			],
 		});
-		logger.info(`DATA_RECEIVED*: ${message}`);
+
+		// Make a log when it is response from the charger.
+		if (messageTypeID === 3) logger.info(`DATA_RECEIVED*: ${message}`);
 
 		if (action === "Authorize") {
-			logger.info({
-				DATA_RECEIVED: {
-					action: "Authorize",
-					identity: chargerIdentity,
-					headers: {
-						...req.headers,
-					},
-					unique_id,
-					payload,
-				},
-			});
+			logger.info(
+				`========================= AUTHORIZE =============================`
+			);
+			logger.info(`DATA_RECEIVED: ${message}`);
+			logger.info(
+				`=========================END OF AUTHORIZE =============================`
+			);
 
 			response = [
 				3,
@@ -88,45 +80,14 @@ wss.on("connection", (ws, req) => {
 			];
 
 			ws.send(JSON.stringify(response));
-
-			// (async () => {
-			// 	const response = await fetch(
-			// 		"http://localhost:4500/ocpp/1.6/api/v1/remote-start",
-			// 		{
-			// 			method: "POST",
-			// 			headers: {
-			// 				"Content-Type": "application/json", // Inform the server you're sending JSON
-			// 			},
-			// 			body: JSON.stringify({
-			// 				charger_identity: chargerIdentity,
-			// 				connector_id: 1,
-			// 				id_tag: payload.idTag,
-			// 			}),
-			// 		}
-			// 	);
-
-			// 	const data = await response.json();
-
-			// 	logger.info({
-			// 		charger_identity: chargerIdentity,
-			// 		connector_id: 1,
-			// 		id_tag: payload.idTag,
-			// 	});
-			// 	logger.info(`Data Received: ${data}`);
-			// 	logger.info(data);
-			// })();
 		} else if (action === "BootNotification") {
-			logger.info({
-				DATA_RECEIVED: {
-					action: "BootNotification",
-					identity: req.url.slice(1),
-					headers: {
-						...req.headers,
-					},
-					unique_id,
-					payload,
-				},
-			});
+			logger.info(
+				`========================= BOOT NOTIFICATION =============================`
+			);
+			logger.info(`DATA_RECEIVED: ${message}`);
+			logger.info(
+				`=========================END OF BOOT NOTIFICATION =============================`
+			);
 
 			const date = new Date();
 			const offsetDate = new Date(date.getTime() + 8 * 60 * 60 * 1000); // Add 8 hours
@@ -144,9 +105,14 @@ wss.on("connection", (ws, req) => {
 
 			ws.send(JSON.stringify(response));
 
+			/**
+			 * Change Configuration
+			 *
+			 * IIFE
+			 */
 			(async () => {
 				try {
-					const response = await fetch(
+					const meterValueSampleIntervalRes = await fetch(
 						"http://localhost:4500/ocpp/1.6/api/v1/change-configuration",
 						{
 							method: "POST",
@@ -161,45 +127,32 @@ wss.on("connection", (ws, req) => {
 						}
 					);
 
-					// Check for HTTP errors
-					if (!response.ok) {
-						const errorText = await response.text();
-						throw new Error(`HTTP ${response.status}: ${errorText}`);
-					}
-
-					// Check if the response is JSON
-					const contentType = response.headers.get("Content-Type");
-					if (contentType && contentType.includes("application/json")) {
-						const data = await response.json();
-						logger.info({
-							charger_identity: req.url.slice(1),
-							connector_id: 1,
-							id_tag: payload.idTag,
-						});
-						logger.info(`Data Received: ${JSON.stringify(data)}`);
-						logger.info(data);
-					} else {
-						const errorText = await response.text();
+					if (!meterValueSampleIntervalRes.ok) {
+						const errorText = await meterValueSampleIntervalRes.text();
 						throw new Error(
-							`Unexpected content type: ${contentType}. Body: ${errorText}`
+							`HTTP API for Change Config for Meter Value Sample Interval ${meterValueSampleIntervalRes.status}: ${errorText}`
 						);
 					}
+
+					const data = await meterValueSampleIntervalRes.json();
+
+					logger.info(
+						`Change Config: Meter Value Sample Interval - ${
+							meterValueSampleIntervalRes.status
+						} : ${JSON.stringify(data)}`
+					);
 				} catch (error) {
 					logger.error(`Error occurred: ${error.message}`);
 				}
 			})();
 		} else if (action === "Heartbeat") {
-			logger.info({
-				DATA_RECEIVED: {
-					action: "Heartbeat",
-					identity: chargerIdentity,
-					headers: {
-						...req.headers,
-					},
-					unique_id,
-					payload,
-				},
-			});
+			logger.info(
+				`========================= HEARTBEAT =============================`
+			);
+			logger.info(`DATA_RECEIVED: ${message}`);
+			logger.info(
+				`========================= HEARTBEAT =============================`
+			);
 
 			const date = new Date();
 			const offsetDate = new Date(date.getTime() + 8 * 60 * 60 * 1000); // Add 8 hours
@@ -217,31 +170,14 @@ wss.on("connection", (ws, req) => {
 		} else if (action === "StatusNotification") {
 			const status = payload.status;
 
-			logger.info({
-				DATA_RECEIVED: {
-					action: "StatusNotification",
-					identity: req.url.slice(1),
-					headers: {
-						...req.headers,
-					},
-					unique_id,
-					payload,
-				},
-			});
-
+			logger.info(
+				`=========================STATUS NOTIFICATION =============================`
+			);
+			logger.info(`DATA_RECEIVED: ${message}`);
+			logger.info(
+				`=========================END OF STATUS NOTIFICATION =============================`
+			);
 			if (status === "Preparing") {
-				// logger.info({ CS_COMMAND: "RemoteStartTransaction" });
-				// response = [
-				// 	2,
-				// 	unique_id,
-				// 	"RemoteStartTransaction",
-				// 	{
-				// 		connectorId: 1,
-				// 		idTag: "0001RFIDTAG00000012",
-				// 	},
-				// ];
-
-				// logger.info({ STATUS: "PREPARING" });
 				response = [3, unique_id, {}];
 				ws.send(JSON.stringify(response));
 			} else if (status === "Charging") {
@@ -259,18 +195,13 @@ wss.on("connection", (ws, req) => {
 			let sampledValue = meterValue[0].sampledValue[0];
 			let transactionId = payload.transactionId;
 
-			logger.info({
-				DATA_RECEIVED: {
-					action: "MeterValues",
-					identity: req.url.slice(1),
-					headers: {
-						...req.headers,
-					},
-					unique_id,
-					payload,
-					transactionId,
-				},
-			});
+			logger.info(
+				`========================= METER VALUES =============================`
+			);
+			logger.info(`DATA_RECEIVED: ${message}`);
+			logger.info(
+				`========================= METER VALUES =============================`
+			);
 
 			let ampere = sampledValue.value;
 
@@ -318,6 +249,14 @@ wss.on("connection", (ws, req) => {
 
 			ws.send(JSON.stringify(response));
 		} else if (action === "StopTransaction") {
+			logger.info(
+				`========================= STOP TRANSACTION =============================`
+			);
+			logger.info(`DATA_RECEIVED: ${message}`);
+			logger.info(
+				`========================= END OF STOP TRANSACTION =============================`
+			);
+
 			response = [
 				3,
 				unique_id,
@@ -335,6 +274,14 @@ wss.on("connection", (ws, req) => {
 
 			ws.send(JSON.stringify(response));
 		} else if (action === "StartTransaction") {
+			logger.info(
+				`========================= START TRANSACTION =============================`
+			);
+			logger.info(`DATA_RECEIVED: ${message}`);
+			logger.info(
+				`========================= END OF START TRANSACTION =============================`
+			);
+
 			let transactionId = connectedChargers.get(chargerIdentity).transactionId; // It must be dynamically generated by some source. (Database primary key, random integer generator, etc.)
 
 			// If from Authorize, then generate transactionId
@@ -358,46 +305,6 @@ wss.on("connection", (ws, req) => {
 			];
 
 			ws.send(JSON.stringify(response));
-		} else if (action === "ClearCache") {
-			logger.info({
-				DATA_RECEIVED: {
-					action: "ClearCache",
-					identity: req.url.slice(1),
-					headers: {
-						...req.headers,
-					},
-					unique_id,
-					payload,
-				},
-			});
-
-			ws.send(JSON.stringify(response));
-		} else if (action === "Reset") {
-			logger.info({
-				DATA_RECEIVED: {
-					action: "Reset",
-					identity: req.url.slice(1),
-					headers: {
-						...req.headers,
-					},
-					unique_id,
-					payload,
-				},
-			});
-
-			ws.send(JSON.stringify(response));
-		} else if (action === "GetLocalListVersion") {
-			logger.info({
-				DATA_RECEIVED: {
-					action: "GetLocalListVersion",
-					identity: req.url.slice(1),
-					headers: {
-						...req.headers,
-					},
-					unique_id,
-					payload,
-				},
-			});
 		}
 	});
 
@@ -405,7 +312,13 @@ wss.on("connection", (ws, req) => {
 		logger.info("Pong received");
 	});
 
-	ws.on("close", () => {
-		logger.info("WebSocket connection closed.");
+	ws.on("close", (code, reason) => {
+		logger.info(
+			`========================= WEB SOCKET CONNECTION CLOSED =============================`
+		);
+		logger.info(code, reason);
+		logger.info(
+			`========================= END OF WEB SOCKEET CONNNECTION CLOSED =============================`
+		);
 	});
 });
